@@ -1,4 +1,4 @@
-import os, threading, sqlite3, logging
+import os, threading, sqlite3, logging, asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -6,33 +6,35 @@ import http.server
 import socketserver
 from groq import Groq
 
-# --- حل مشكلة البورت لـ Render ---
+# --- 1. المحرك الحي (Keep Alive) لضمان استقرار Render ---
 def run_keep_alive():
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b"BAC Algeria Empire is Awake!")
+            self.wfile.write(b"BAC 2026 Empire is Standing Strong!")
     
     port = int(os.environ.get("PORT", 8080))
     with socketserver.TCPServer(("", port), HealthHandler) as httpd:
         httpd.serve_forever()
 
-# --- إعدادات البيئة وقاعدة البيانات ---
+# --- 2. الإعدادات والبيئة ---
 TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-BAC_DATE = datetime(2026, 6, 15) # الموعد التقريبي لباك 2026
+BAC_DATE = datetime(2026, 6, 15)
 
 def init_db():
-    conn = sqlite3.connect("bac_dz.db")
+    conn = sqlite3.connect("bac_algeria.db")
     conn.execute('''CREATE TABLE IF NOT EXISTS users 
                  (id INTEGER PRIMARY KEY, name TEXT, xp INTEGER DEFAULT 0, warns INTEGER DEFAULT 0)''')
     conn.commit()
     conn.close()
 
-class BacEmpireBot:
+# --- 3. محرك البوت الذكي ---
+class HamzaProBot:
     def __init__(self):
         init_db()
+        # بناء التطبيق مع إعدادات منع التعارض
         self.app = Application.builder().token(TOKEN).build()
         self._setup_handlers()
 
@@ -40,98 +42,107 @@ class BacEmpireBot:
         user = update.effective_user
         days_left = (BAC_DATE - datetime.now()).days
         
+        # تخزين المستخدم
+        conn = sqlite3.connect("bac_algeria.db")
+        conn.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user.id, user.first_name))
+        conn.commit()
+        conn.close()
+
         keyboard = [
-            [InlineKeyboardButton("📚 ترسانة الدروس (DZ)", callback_data="edu"), InlineKeyboardButton("🧠 سؤال جماعي AI", callback_data="ai")],
-            [InlineKeyboardButton("🏆 قائمة النخبة", callback_data="top"), InlineKeyboardButton("👤 ملفي الملكي", callback_data="profile")],
+            [InlineKeyboardButton("📚 ترسانة الدروس DZ", callback_data="edu"), InlineKeyboardButton("🧠 العقل الاصطناعي", callback_data="ai_call")],
+            [InlineKeyboardButton("📊 بروفايلي الملكي", callback_data="me"), InlineKeyboardButton("🏆 قائمة النخبة", callback_data="top")],
             [InlineKeyboardButton("📅 عداد الحسم", callback_data="timer")]
         ]
         
-        text = (f"🏰 **مرحباً بك في عرين إمبراطورية البكالوريا {user.first_name}**\n\n"
-                f"🎯 **الهدف:** كرتونة 2026 بمعدل ممتاز 🎓\n"
-                f"⏳ **متبقي للحسم:** {days_left} يوم\n\n"
-                "اختر وجهتك القتالية 👇")
+        msg = (f"🏰 **أهلاً بك في عرين إمبراطورية البكالوريا {user.first_name}**\n\n"
+               f"🇩🇿 **باك 2026:** نحن هنا لنصنع المجد!\n"
+               f"⏳ **باقي على الحلم:** {days_left} يوم\n\n"
+               "سيرفر الإمبراطور يعمل بأقصى طاقة 🚀")
         
         if update.message:
-            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         else:
-            await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.callback_query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        user_id = query.from_user.id
-        await query.answer()
+        await query.answer() # استجابة فورية لمنع تعليق الزر
 
-        if query.data == "profile":
-            conn = sqlite3.connect("bac_dz.db")
-            res = conn.execute("SELECT xp, warns FROM users WHERE id=?", (user_id,)).fetchone()
+        if query.data == "me":
+            conn = sqlite3.connect("bac_algeria.db")
+            res = conn.execute("SELECT xp, warns FROM users WHERE id=?", (query.from_user.id,)).fetchone()
             xp, warns = (res[0], res[1]) if res else (0, 0)
-            conn.close()
             
-            bar = "▰" * (xp // 100) + "▱" * (10 - (xp // 100)) # شريط تقدم بسيط
-            msg = (f"👤 **بطاقة التعريف المدرسية:**\n\n"
-                   f"⭐ **النقاط:** `{xp} XP`\n"
+            status = "🟢 منضبط" if warns == 0 else "🟡 تحت الرقابة" if warns < 3 else "🔴 خطر"
+            msg = (f"👤 **ملفك الإمبراطوري:**\n\n"
+                   f"⭐ **نقاط الخبرة:** `{xp} XP`\n"
                    f"⚠️ **الإنذارات:** `{warns}/3`\n"
-                   f"📊 **مستوى الجاهزية:**\n`{bar}`")
+                   f"🛡️ **الحالة:** {status}")
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="home")]]), parse_mode="Markdown")
         
         elif query.data == "top":
-            conn = sqlite3.connect("bac_dz.db")
+            conn = sqlite3.connect("bac_algeria.db")
             top = conn.execute("SELECT name, xp FROM users ORDER BY xp DESC LIMIT 5").fetchall()
-            conn.close()
             msg = "🏆 **نخبة الإمبراطورية (الأوائل):**\n\n"
-            for i, u in enumerate(top): msg += f"{['🥇','🥈','🥉','🎖️','🎖️'][i]} {u[0]} — `{u[1]} XP`\n"
+            for i, u in enumerate(top):
+                msg += f"{['🥇','🥈','🥉','🎖️','🎖️'][i]} {u[0]} — `{u[1]} XP`\n"
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="home")]]), parse_mode="Markdown")
 
         elif query.data == "home":
             await self.start(update, context)
 
-    # --- نظام العقوبات الملكي (أوامر الإدارة) ---
     async def admin_warn(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # ميزة البطاقة الصفراء والحمراء
         if not update.message.reply_to_message:
-            return await update.message.reply_text("❌ رد على رسالة 'المشاغب' لإعطائه البطاقة!")
+            return await update.message.reply_text("❌ رد على رسالة الشخص لإعطائه بطاقة!")
         
         target = update.message.reply_to_message.from_user
-        conn = sqlite3.connect("bac_dz.db")
+        conn = sqlite3.connect("bac_algeria.db")
         conn.execute("UPDATE users SET warns = warns + 1 WHERE id = ?", (target.id,))
-        res = conn.execute("SELECT warns FROM users WHERE id = ?", (target.id,)).fetchone()
+        warns = conn.execute("SELECT warns FROM users WHERE id = ?", (target.id,)).fetchone()[0]
         conn.commit()
-        conn.close()
-
-        warn_count = res[0] if res else 1
-        if warn_count >= 3:
-            await update.message.reply_text(f"🔴 **بطاقة حمراء!** تم طرد {target.first_name} بسبب كثرة التشويش.")
+        
+        if warns >= 3:
+            await update.message.reply_text(f"🔴 **بطاقة حمراء!** تم طرد {target.first_name} بسبب التشويش.")
             await context.bot.ban_chat_member(update.effective_chat.id, target.id)
         else:
-            await update.message.reply_text(f"🟡 **بطاقة صفراء!** {target.first_name}، هذا الإنذار رقم {warn_count}. التزم بالدراسة!")
+            await update.message.reply_text(f"🟡 **بطاقة صفراء!** {target.first_name}، إنذار رقم {warns}. التزم بالقوانين!")
 
-    async def chat_monitor(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def global_monitor(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.message or not update.message.text: return
         text = update.message.text
         user = update.effective_user
 
-        # زيادة نقاط التفاعل في القروب تلقائياً
-        conn = sqlite3.connect("bac_dz.db")
+        # زيادة XP تلقائي
+        conn = sqlite3.connect("bac_algeria.db")
         conn.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user.id, user.first_name))
         conn.execute("UPDATE users SET xp = xp + 1 WHERE id = ?", (user.id,))
         conn.commit()
-        conn.close()
 
+        # الذكاء الاصطناعي بلمسة جزائرية
         if text.startswith("سؤال"):
             prompt = text.replace("سؤال", "").strip()
-            msg = await update.message.reply_text("🌀 جاري استدعاء العقل الإمبراطوري...")
-            client = Groq(api_key=GROQ_KEY)
-            res = client.chat.completions.create(messages=[{"role": "user", "content": f"أجب بلهجة جزائرية تشجيعية لطلاب البكالوريا: {prompt}"}], model="llama3-70b-8192")
-            await msg.edit_text(f"🤖 **الإجابة:**\n\n{res.choices[0].message.content}")
+            waiting = await update.message.reply_text("🌀 جاري استدعاء العقل الإمبراطوري...")
+            try:
+                client = Groq(api_key=GROQ_KEY)
+                res = client.chat.completions.create(
+                    messages=[{"role": "user", "content": f"أنت مساعد طالب بكالوريا جزائري، أجب بوضوح وتشجيع: {prompt}"}],
+                    model="llama3-70b-8192"
+                )
+                await waiting.edit_text(f"🤖 **إجابة العقل الذكي:**\n\n{res.choices[0].message.content}")
+            except:
+                await waiting.edit_text("❌ العقل مشغول حالياً، حاول لاحقاً!")
 
     def _setup_handlers(self):
         self.app.add_handler(CommandHandler("start", self.start))
-        self.app.add_handler(CommandHandler("warn", self.admin_warn)) # أمر البطاقة
+        self.app.add_handler(CommandHandler("warn", self.admin_warn))
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
-        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.chat_monitor))
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.global_monitor))
 
     def run(self):
         threading.Thread(target=run_keep_alive, daemon=True).start()
-        self.app.run_polling(drop_pending_updates=True)
+        # أهم سطر لمنع الـ Conflict وتكرار البوت
+        self.app.run_polling(drop_pending_updates=True, stop_signals=None)
 
 if __name__ == "__main__":
-    BacEmpireBot().run()
+    HamzaProBot().run()
