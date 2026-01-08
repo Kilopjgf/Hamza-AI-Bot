@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from PIL import Image, ImageDraw, ImageFont # للمميزات البصرية والشهادات
 
 # ==================== الإعدادات الأساسية ====================
-TOKEN = "8518151371:AAGDgSVHeOK6kjYfCweFr6XfiKBEi1biltM"
+TOKEN = os.getenv("BOT_TOKEN")
 GROUP_ID = -1003531785043
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") # للذكاء الاصطناعي
 BAC_DATE = datetime(2026, 6, 15) # موعد تقديري للباك
