@@ -1,121 +1,105 @@
-import os, sqlite3, json, random, threading, logging
+import os, threading, sqlite3, logging, time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from PIL import Image, ImageDraw, ImageFont
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import http.server
 import socketserver
 
-# ==================== نظام خدع Render (المنفذ الوهمي) ====================
-def run_dummy_server():
+# --- إعدادات السيرفر الوهمي لـ Render ---
+def run_keep_alive():
     port = int(os.environ.get("PORT", 8080))
     handler = http.server.SimpleHTTPRequestHandler
     with socketserver.TCPServer(("", port), handler) as httpd:
-        print(f"🛰️ المنفذ الملكي يعمل على البورت: {port}")
         httpd.serve_forever()
 
-# ==================== الإعدادات الأساسية ====================
+# --- الإعدادات ---
 TOKEN = os.getenv("BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
 BAC_DATE = datetime(2026, 6, 15)
 
-# ==================== قاعدة البيانات المركزية ====================
-def init_db():
-    conn = sqlite3.connect("study_empire.db")
+# --- قاعدة البيانات ---
+def db_manage(query, params=(), fetch=False):
+    conn = sqlite3.connect("empire.db")
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY, name TEXT, points INTEGER DEFAULT 0,
-        level INTEGER DEFAULT 1, rank TEXT DEFAULT 'محارب')''')
+    c.execute(query, params)
+    data = c.fetchall() if fetch else None
     conn.commit()
     conn.close()
+    return data
 
-# ==================== محرك الإمبراطورية ====================
-class HamzaEmpire:
+def init_db():
+    db_manage('''CREATE TABLE IF NOT EXISTS users 
+                 (id INTEGER PRIMARY KEY, name TEXT, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1)''')
+
+# --- محرك البوت الإمبراطوري ---
+class HamzaProBot:
     def __init__(self):
         init_db()
         self.app = Application.builder().token(TOKEN).build()
-        self._setup_handlers()
+        self._load_handlers()
 
-    def _get_rank(self, points):
-        if points > 5000: return "👑 الإمبراطور"
-        if points > 2000: return "🎖️ الجنرال"
-        if points > 500: return "⚔️ القائد"
-        return "🛡️ محارب"
-
-    def _get_progress_bar(self):
-        total_days = 270 # معدل أيام السنة الدراسية
-        remaining = (BAC_DATE - datetime.now()).days
-        passed = total_days - remaining
-        filled = int((passed / total_days) * 10)
-        return "▬" * filled + "▷" + "▭" * (10 - filled)
+    def get_rank_info(self, xp):
+        ranks = [(0, "🛡️ محارب"), (500, "⚔️ قائد"), (2000, "🎖️ جنرال"), (5000, "👑 إمبراطور")]
+        current_rank = ranks[0][1]
+        next_xp = 500
+        for r_xp, r_name in ranks:
+            if xp >= r_xp:
+                current_rank = r_name
+                idx = ranks.index((r_xp, r_name))
+                next_xp = ranks[idx+1][0] if idx+1 < len(ranks) else xp
+        
+        progress = int((xp / next_xp) * 10) if next_xp != xp else 10
+        bar = "▰" * progress + "▱" * (10 - progress)
+        return current_rank, bar
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        bar = self._get_progress_bar()
-        remaining = (BAC_DATE - datetime.now()).days
+        db_manage("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user.id, user.first_name))
         
-        # تخزين المستخدم في القاعدة
-        conn = sqlite3.connect("study_empire.db")
-        c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO users (user_id, name) VALUES (?, ?)", (user.id, user.first_name))
-        conn.commit()
-        conn.close()
-
+        days_left = (BAC_DATE - datetime.now()).days
         keyboard = [
-            [InlineKeyboardButton("📚 ترسانة الدروس", callback_data="lessons"), InlineKeyboardButton("🧠 ذكاء Groq", callback_data="ai_chat")],
-            [InlineKeyboardButton("🏆 ترتيب العمالقة", callback_data="top"), InlineKeyboardButton("👤 بروفايلي الملكي", callback_data="profile")],
-            [InlineKeyboardButton("⏰ عداد الحسم", callback_data="timer")]
+            [InlineKeyboardButton("📚 الترسانة التعليمية", callback_data="edu"), InlineKeyboardButton("🤖 مستشار AI", callback_data="ai")],
+            [InlineKeyboardButton("📊 ملفي الملكي", callback_data="me"), InlineKeyboardButton("🏆 قائمة العمالقة", callback_data="top")],
+            [InlineKeyboardButton("⚙️ دعم الإمبراطورية", url="https://t.me/your_username")] # ضع معرفك هنا
         ]
-
-        msg = (f"👋 **أهلاً بك في عرين الإمبراطورية!**\n\n"
-               f"👤 **المجاهد:** {user.first_name}\n"
-               f"⏳ **الحسم:** {remaining} يوم\n"
-               f"📊 **التقدم:** `{bar}`\n\n"
-               f"⚡ _أنت هنا لتصنع مجدك، فابدأ الهجوم الآن!_")
         
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        welcome_text = (f"🏰 **أهلاً بك في إمبراطورية حمزة التعليمية**\n\n"
+                        f"🎯 **الهدف:** بكالوريا 2026\n"
+                        f"⏳ **متبقي:** {days_left} يوم من الكفاح\n"
+                        f"✨ **الحالة:** السيرفر يعمل بأقصى سرعة\n\n"
+                        f"اختر سلاحك اليوم 👇")
+        
+        await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-    async def handle_buttons(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
-        await query.answer()
+        await query.answer() # لسرعة استجابة الزر
 
-        if query.data == "profile":
-            conn = sqlite3.connect("study_empire.db")
-            c = conn.cursor()
-            c.execute("SELECT points, level FROM users WHERE user_id=?", (user_id,))
-            res = c.fetchone()
-            pts = res[0] if res else 0
-            rank = self._get_rank(pts)
+        if query.data == "me":
+            user_data = db_manage("SELECT xp, level FROM users WHERE id=?", (user_id,), fetch=True)
+            xp = user_data[0][0] if user_data else 0
+            rank, bar = self.get_rank_info(xp)
             
-            text = (f"⚜️ **بطاقة الهوية الإمبراطورية** ⚜️\n\n"
+            text = (f"👤 **البطاقة الشخصية للمجاهد:**\n\n"
                     f"🎖️ **الرتبة:** {rank}\n"
-                    f"⭐ **النقاط:** {pts} XP\n"
-                    f"📖 **المستوى:** {res[1] if res else 1}\n\n"
-                    f"🔥 _استمر في الدراسة لترقية رتبتك!_")
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="back")]]), parse_mode="Markdown")
+                    f"⭐ **النقاط:** {xp} XP\n"
+                    f"📈 **التقدم للرتبة التالية:**\n`{bar}`\n\n"
+                    f"تفاعل في القروب لزيادة نقاطك!")
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="home")]]), parse_mode="Markdown")
         
-        elif query.data == "back":
-            # إعادة استدعاء قائمة البداية (تعديل الرسالة)
+        elif query.data == "home":
+            # العودة للقائمة الرئيسية (إعادة بناء Start)
             await self.start(update, context)
 
-    async def auto_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # نظام حماية القروب من الروابط الغريبة
-        if update.message and update.message.text:
-            if "http" in update.message.text.lower() and not update.message.from_user.id == 8518151371: # ضع آيديك هنا للاستثناء
+    async def group_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # منع الروابط وزيادة النقاط بالتفاعل
+        if not update.message or not update.message.text: return
+        
+        # زيادة نقاط تلقائية عند التفاعل
+        db_manage("UPDATE users SET xp = xp + 1 WHERE id = ?", (update.effective_user.id,))
+        
+        if "http" in update.message.text.lower():
+            if update.effective_user.id != 8518151371: # استثناءك أنت (الإمبراطور)
                 await update.message.delete()
-                await update.message.reply_text(f"🚫 **ممنوع الروابط!**\nهنا ندرس فقط يا {update.effective_user.first_name}")
-
-    def _setup_handlers(self):
-        self.app.add_handler(CommandHandler("start", self.start))
-        self.app.add_handler(CallbackQueryHandler(self.handle_buttons))
-        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.auto_guard))
-
-    def run(self):
-        # تشغيل السيرفر الوهمي في خيط منفصل لـ Render
-        threading.Thread(target=run_dummy_server, daemon=True).start()
-        print("🚀 الإمبراطورية جاهزة للغزو...")
-        self.app.run_polling()
-
-if __name__ == "__main__":
-    HamzaEmpire().run()
+                await
