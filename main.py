@@ -1,124 +1,121 @@
-import os, sqlite3, json, random, time, logging
+import os, sqlite3, json, random, threading, logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from PIL import Image, ImageDraw, ImageFont # للمميزات البصرية والشهادات
+from PIL import Image, ImageDraw, ImageFont
+import http.server
+import socketserver
+
+# ==================== نظام خدع Render (المنفذ الوهمي) ====================
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", port), handler) as httpd:
+        print(f"🛰️ المنفذ الملكي يعمل على البورت: {port}")
+        httpd.serve_forever()
 
 # ==================== الإعدادات الأساسية ====================
 TOKEN = os.getenv("BOT_TOKEN")
-GROUP_ID = -1003531785043
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") # للذكاء الاصطناعي
-BAC_DATE = datetime(2026, 6, 15) # موعد تقديري للباك
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+BAC_DATE = datetime(2026, 6, 15)
 
 # ==================== قاعدة البيانات المركزية ====================
 def init_db():
     conn = sqlite3.connect("study_empire.db")
     c = conn.cursor()
-    # جدول المستخدمين المطور
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY, name TEXT, points INTEGER DEFAULT 0,
-        level INTEGER DEFAULT 1, streak INTEGER DEFAULT 0, last_active DATE,
-        team_id INTEGER, role TEXT DEFAULT 'طالب')''')
-    # جدول الفرق
-    c.execute('''CREATE TABLE IF NOT EXISTS teams (
-        team_id INTEGER PRIMARY KEY AUTOINCREMENT, team_name TEXT, 
-        team_code TEXT, leader_id INTEGER, total_xp INTEGER DEFAULT 0, logo_text TEXT)''')
+        level INTEGER DEFAULT 1, rank TEXT DEFAULT 'محارب')''')
     conn.commit()
     conn.close()
 
-# ==================== محرك الرسوميات (الشهادات والبطاقات) ====================
-def generate_cert(name, subject, score):
-    img = Image.new('RGB', (800, 500), color=(255, 255, 255))
-    draw = ImageDraw.Draw(img)
-    # رسم إطار ملكي
-    draw.rectangle([20, 20, 780, 480], outline=(184, 134, 11), width=10)
-    draw.text((300, 50), "شهادة تميز علمي", fill=(0, 0, 0))
-    draw.text((100, 200), f"يمنح بوت حمزة الذكي هذه الشهادة لـ: {name}", fill=(0, 0, 0))
-    draw.text((100, 260), f"لتفوقه في مادة: {subject} بنتيجة: {score}", fill=(0, 0, 0))
-    path = f"cert_{name}.png"
-    img.save(path)
-    return path
-
-# ==================== المنطق البرمجي للبوت ====================
-class StudyEmpire:
+# ==================== محرك الإمبراطورية ====================
+class HamzaEmpire:
     def __init__(self):
-        self.app = Application.builder().token(TOKEN).build()
         init_db()
-        self._load_handlers()
+        self.app = Application.builder().token(TOKEN).build()
+        self._setup_handlers()
 
-    def _load_handlers(self):
-        self.app.add_handler(CommandHandler("start", self.main_menu))
-        self.app.add_handler(CallbackQueryHandler(self.button_manager))
-        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.anti_cheat_engine))
+    def _get_rank(self, points):
+        if points > 5000: return "👑 الإمبراطور"
+        if points > 2000: return "🎖️ الجنرال"
+        if points > 500: return "⚔️ القائد"
+        return "🛡️ محارب"
 
-    async def main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # حساب العد التنازلي للباك
-        remaining = BAC_DATE - datetime.now()
+    def _get_progress_bar(self):
+        total_days = 270 # معدل أيام السنة الدراسية
+        remaining = (BAC_DATE - datetime.now()).days
+        passed = total_days - remaining
+        filled = int((passed / total_days) * 10)
+        return "▬" * filled + "▷" + "▭" * (10 - filled)
+
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
+        bar = self._get_progress_bar()
+        remaining = (BAC_DATE - datetime.now()).days
         
-        keyboard = [
-            [InlineKeyboardButton("🔢 الرياضيات", callback_data="sub_math"), InlineKeyboardButton("⚛️ الفيزياء", callback_data="sub_phys")],
-            [InlineKeyboardButton("👥 نظام الفرق", callback_data="team_menu"), InlineKeyboardButton("🏆 لوحة الشرف", callback_data="leaderboard")],
-            [InlineKeyboardButton("📊 ملفي الشخصي", callback_data="my_profile"), InlineKeyboardButton("🤖 مساعد AI", callback_data="ai_help")]
-        ]
-        
-        text = (f"🏰 **مرحباً بك في إمبراطورية حمزة التعليمية**\n\n"
-                f"👤 الطالب: {user.first_name}\n"
-                f"📅 متبقي للباك: {remaining.days} يوم\n"
-                f"🔥 السلسلة الحالية: 3 أيام متتالية\n\n"
-                f"اختر قسمك لبدء الرحلة 👇")
-        
-        if update.message:
-            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        else:
-            await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        # تخزين المستخدم في القاعدة
+        conn = sqlite3.connect("study_empire.db")
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO users (user_id, name) VALUES (?, ?)", (user.id, user.first_name))
+        conn.commit()
+        conn.close()
 
-    async def button_manager(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        keyboard = [
+            [InlineKeyboardButton("📚 ترسانة الدروس", callback_data="lessons"), InlineKeyboardButton("🧠 ذكاء Groq", callback_data="ai_chat")],
+            [InlineKeyboardButton("🏆 ترتيب العمالقة", callback_data="top"), InlineKeyboardButton("👤 بروفايلي الملكي", callback_data="profile")],
+            [InlineKeyboardButton("⏰ عداد الحسم", callback_data="timer")]
+        ]
+
+        msg = (f"👋 **أهلاً بك في عرين الإمبراطورية!**\n\n"
+               f"👤 **المجاهد:** {user.first_name}\n"
+               f"⏳ **الحسم:** {remaining} يوم\n"
+               f"📊 **التقدم:** `{bar}`\n\n"
+               f"⚡ _أنت هنا لتصنع مجدك، فابدأ الهجوم الآن!_")
+        
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    async def handle_buttons(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        data = query.data
+        user_id = query.from_user.id
         await query.answer()
 
-        if data == "sub_math":
-            await self.show_subject_menu(query, "الرياضيات")
-        elif data == "team_menu":
-            await self.show_team_menu(query)
-        elif data == "leaderboard":
-            await self.show_honor_roll(query)
-        elif data == "my_profile":
-            await self.show_profile(query)
-        elif data == "back_to_main":
-            await self.main_menu(update, context)
+        if query.data == "profile":
+            conn = sqlite3.connect("study_empire.db")
+            c = conn.cursor()
+            c.execute("SELECT points, level FROM users WHERE user_id=?", (user_id,))
+            res = c.fetchone()
+            pts = res[0] if res else 0
+            rank = self._get_rank(pts)
+            
+            text = (f"⚜️ **بطاقة الهوية الإمبراطورية** ⚜️\n\n"
+                    f"🎖️ **الرتبة:** {rank}\n"
+                    f"⭐ **النقاط:** {pts} XP\n"
+                    f"📖 **المستوى:** {res[1] if res else 1}\n\n"
+                    f"🔥 _استمر في الدراسة لترقية رتبتك!_")
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="back")]]), parse_mode="Markdown")
+        
+        elif query.data == "back":
+            # إعادة استدعاء قائمة البداية (تعديل الرسالة)
+            await self.start(update, context)
 
-    async def show_subject_menu(self, query, subject):
-        keyboard = [
-            [InlineKeyboardButton("📝 تحدي سريع", callback_data=f"quiz_{subject}"), InlineKeyboardButton("📚 ملخصات", callback_data=f"pdf_{subject}")],
-            [InlineKeyboardButton("🔙 العودة للمنصة", callback_data="back_to_main")]
-        ]
-        await query.edit_message_text(f"🎯 قسم {subject}:\nجاهز للتحدي يا بطل؟", reply_markup=InlineKeyboardMarkup(keyboard))
+    async def auto_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # نظام حماية القروب من الروابط الغريبة
+        if update.message and update.message.text:
+            if "http" in update.message.text.lower() and not update.message.from_user.id == 8518151371: # ضع آيديك هنا للاستثناء
+                await update.message.delete()
+                await update.message.reply_text(f"🚫 **ممنوع الروابط!**\nهنا ندرس فقط يا {update.effective_user.first_name}")
 
-    async def show_team_menu(self, query):
-        keyboard = [
-            [InlineKeyboardButton("➕ إنشاء فريق", callback_data="create_team"), InlineKeyboardButton("🤝 انضمام لكود", callback_data="join_team")],
-            [InlineKeyboardButton("🔙 العودة", callback_data="back_to_main")]
-        ]
-        await query.edit_message_text("⚔️ نظام تحالفات الفرق:\nاتحد مع أصدقائك لسحق البكالوريا!", reply_markup=InlineKeyboardMarkup(keyboard))
-
-    async def show_honor_roll(self, query):
-        # مثال لبيانات من قاعدة البيانات
-        text = "🏅 **لوحة الشرف الأسبوعية (Top 10)**\n\n"
-        text += "1️⃣ حمزة الملك - 5400 XP\n2️⃣ أحمد المتفوق - 4900 XP\n..."
-        keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="back_to_main")]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-    async def anti_cheat_engine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # خوارزمية بسيطة لمنع النسخ أو الإجابة بسرعة غير بشرية
-        if len(update.message.text) > 500: # رسائل طويلة جداً مشبوهة
-             await update.message.delete()
-             await update.message.reply_text("🛡️ حماية: يمنع لصق النصوص الطويلة.")
+    def _setup_handlers(self):
+        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CallbackQueryHandler(self.handle_buttons))
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.auto_guard))
 
     def run(self):
-        print("🚀 إمبراطورية حمزة (StudySmart V5) قيد التشغيل...")
+        # تشغيل السيرفر الوهمي في خيط منفصل لـ Render
+        threading.Thread(target=run_dummy_server, daemon=True).start()
+        print("🚀 الإمبراطورية جاهزة للغزو...")
         self.app.run_polling()
 
 if __name__ == "__main__":
-    StudyEmpire().run()
+    HamzaEmpire().run()
