@@ -1,71 +1,77 @@
-import os
 import asyncio
+import os
+import re
 from pyrogram import Client, filters, errors
+from pyrogram.types import Message
 
-# --- بياناتك الشخصية التي استخرجتها ---
-app = Client("ExpertScraper", api_id=34118961, api_hash="0b53e526ea59d87bd0236eed5338abe5")
+# --- إعدادات البيئة (Render Environment Variables) ---
+API_ID = int(os.environ.get("API_ID", 34118961))
+API_HASH = os.environ.get("API_HASH", "0b53e526ea59d87bd0236eed5338abe5")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+STRING_SESSION = os.environ.get("STRING_SESSION")
 
+# إعداد العميل بأعلى كفاءة
+app = Client(
+    "Hmza_Ultra_Bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    session_string=STRING_SESSION,
+    workers=50,             # سرعة معالجة قصوى
+    sleep_threshold=120     # تخطي فترات الانتظار الطويلة تلقائياً
+)
 
+def get_chat_info(link):
+    """تحليل ذكي لروابط تليجرام"""
+    pattern = r"t\.me/(?:c/)?([^/]+)/(\d+)"
+    match = re.search(pattern, link)
+    if not match: return None
+    chat, msg_id = match.group(1), int(match.group(2))
+    if chat.isdigit(): chat = int(f"-100{chat}")
+    return chat, msg_id
 
+@app.on_message(filters.command("start") & filters.private)
+async def start_cmd(client, message):
+    await message.reply_text(
+        "⚡ **أهلاً بك في بوت الجلب العملاق!**\n\n"
+        "لجلب محتوى مقيد بشكل متعدد، أرسل الأمر كالتالي:\n"
+        "`/bulk [الرابط] [العدد]`\n\n"
+        "مثال:\n`/bulk https://t.me/c/12345/10 5`"
+    )
 
-# دالة ذكية لتحليل الروابط (خاصة أو عامة)
-def parse_link(link):
-    if "t.me/c/" in link:
-        parts = link.split('/')
-        return int("-100" + parts[4]), int(parts[5])
-    else:
-        parts = link.split('/')
-        return parts[3], int(parts[4])
-
-# دالة السحب والرفع (بأعلى جودة وسرعة)
-async def process_media(client, chat_id, msg_id):
+@app.on_message(filters.command("bulk") & filters.private)
+async def bulk_grab(client: Client, message: Message):
     try:
-        msg = await client.get_messages(chat_id, msg_id)
-        if msg.media:
-            # التحميل: يتجاوز وسم "المحتوى المقيد" تلقائياً
-            file_path = await client.download_media(msg)
-            # الرفع: يرسل الملف كنسخة جديدة تماماً (بدون حقوق)
-            await client.send_document("me", file_path, caption=msg.caption or "✅ تم السحب بنجاح")
-            # تنظيف السيرفر
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            return True
+        args = message.text.split()
+        if len(args) < 3:
+            return await message.reply("⚠️ الاستخدام الصحيح: `/bulk [الرابط] [العدد]`")
+
+        link, count = args[1], int(args[2])
+        data = get_chat_info(link)
+        if not data: return await message.reply("❌ رابط غير مدعوم!")
+
+        chat_id, start_id = data
+        status = await message.reply("🚀 **جاري بدء عملية الجلب الخارقة...**")
+        
+        success = 0
+        for i in range(count):
+            curr_id = start_id + i
+            try:
+                # ميزة copy_message هي الأقوى لتخطي قيود المحتوى
+                await client.copy_message(message.chat.id, chat_id, curr_id)
+                success += 1
+                if success % 5 == 0: # تحديث الحالة كل 5 رسائل للسرعة
+                    await status.edit(f"📥 تم جلب `{success}` من أصل `{count}`...")
+                await asyncio.sleep(0.8) # فاصل زمني مثالي لتجنب الحظر
+            except errors.FloodWait as e:
+                await asyncio.sleep(e.value + 1)
+            except Exception: continue
+
+        await status.edit(f"✅ **اكتملت المهمة بنجاح!**\nتم جلب `{success}` ملف/رسالة.")
     except Exception as e:
-        print(f"Error in {msg_id}: {e}")
-        return False
+        await message.reply(f"❌ خطأ: `{str(e)}`")
 
-# 1. أمر السحب الفردي (.grab)
-@app.on_message(filters.command("grab", prefixes=".") & filters.me)
-async def single_grab(client, message):
-    if len(message.command) < 2: return
-    link = message.command[1]
-    await message.edit("🔄 جاري السحب الفردي...")
-    chat_id, msg_id = parse_link(link)
-    if await process_media(client, chat_id, msg_id):
-        await message.delete()
-    else:
-        await message.edit("❌ فشل السحب!")
-
-# 2. أمر السحب الشامل (.bulk) - يسحب منشورات كثيرة في وقت واحد
-@app.on_message(filters.command("bulk", prefixes=".") & filters.me)
-async def bulk_grab(client, message):
-    # التنسيق: .bulk [رابط_أول_منشور] [العدد]
-    if len(message.command) < 3: return
-    link = message.command[1]
-    count = int(message.command[2])
-    
-    chat_id, start_id = parse_link(link)
-    await message.edit(f"🚀 بدأ السحب الشامل لـ {count} منشور...")
-
-    for i in range(count):
-        current_id = start_id + i
-        await process_media(client, chat_id, current_id)
-        # تأخير بسيط (2 ثانية) لضمان عدم حظر الحساب من تلجرام
-        await asyncio.sleep(2) 
-
-    await message.reply("✅ اكتملت المهمة الشاملة بنجاح!")
-
-print("⚡ البوت يعمل بنجاح! اذهب لتلجرام واستخدم .grab أو .bulk")
+print("🔥 البوت يعمل الآن بأقصى طاقة على Render!")
 app.run()
 
 
