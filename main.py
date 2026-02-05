@@ -3,10 +3,10 @@ import asyncio
 from pyrogram import Client, filters, errors
 
 # --- بياناتك الشخصية التي استخرجتها ---
-API_ID = 34118961
-API_HASH = "0b53e526ea59d87bd0236eed5338abe5"
+app = Client("ExpertScraper", api_id=34118961, api_hash="0b53e526ea59d87bd0236eed5338abe5")
 
-app = Client("BAIInTEAhAp3sQw3xBrN3AyC2Kg07dDq3vml676VOtfkLc684y0t3rvOUFc_4Wo-2a3XdfxmTQ3dNqfs0fZoCyXkZV9ezHnanzbu_uknEUswzzwrUAg9rKZ771QQtMF_GhNP-SsdONKplg5iQ970OBV9ohkjO6_hHqK-Fo4owbIiQ1gU9mXYt1prnSov1XMoVJlKpHNZk3hmEHl_P4Q9d_snOmgZD_mnGfbsFqkCzm_KRBfHS3_zM3EhW3fsuLALnrl3QW4MrAkBC24A4Ym_mzs4kYJw9Raq4crU1rhkwAEtlnuu54HQBkH1Gp2sydX6qBmNTc2DQhpR_3g1lE6P8TtGvMrqTQAAAAGqO0mxAA", api_id=API_ID, api_hash=API_HASH)
+
+
 
 # دالة ذكية لتحليل الروابط (خاصة أو عامة)
 def parse_link(link):
