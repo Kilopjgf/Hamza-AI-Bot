@@ -1,9 +1,9 @@
 from telethon import TelegramClient
 import asyncio
 
-api_id = 123456          # ضع الـ api_id هنا
-api_hash = 'abcdef1234567890'  # ضع الـ api_hash هنا
-phone = '+213XXXXXXXXX'  # رقم الهاتف المستخدم
+api_id = 32630729       # ضع الـ api_id هنا
+api_hash = 'edf5520c08c8df7b3408acbda46f3140'  # ضع الـ api_hash هنا
+phone = '+213784428519'  # رقم الهاتف المستخدم
 
 client = TelegramClient('render_session', api_id, api_hash)
 
