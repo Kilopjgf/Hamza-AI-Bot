@@ -26,22 +26,26 @@ client = TelegramClient(StringSession(STRING_SESSION.strip()), API_ID, API_HASH)
 async def transfer_message(target, msg):
     """نقل الرسائل مع التفريق بين النصوص والوسائط"""
     try:
-        if msg.text and len(msg.text) > 10:
+        if msg.text and len(msg.text) > 0:
             await client.send_message(target, msg.text)
-        elif msg.media:
-            await client.send_file(
-                target,
-                msg.media,
-                caption=msg.text or "",
-                force_document=False,
-                supports_streaming=True
-            )
+
+        elif msg.photo:
+            await client.send_file(target, msg.media, caption=msg.text or "", force_document=False)
+
+        elif msg.video:
+            await client.send_file(target, msg.media, caption=msg.text or "", supports_streaming=True)
+
+        elif msg.document:
+            await client.send_file(target, msg.media, caption=msg.text or "", force_document=True)
+
         print(f"✅ تم نقل الرسالة {msg.id}")
         return True
+
     except errors.FloodWaitError as e:
         print(f"⚠️ FloodWait: انتظار {e.seconds} ثانية")
         await asyncio.sleep(e.seconds)
         return await transfer_message(target, msg)
+
     except Exception as e:
         print(f"❌ خطأ في الرسالة {msg.id}: {e}")
         return False
@@ -61,8 +65,14 @@ async def main():
         success = await transfer_message(target_entity, msg)
         if success:
             print(f"🚀 تقدم: {i}/{len(messages)}")
-        # تأخير ذكي: أقل للنصوص، أكثر للفيديوهات
-        await asyncio.sleep(1 if msg.text else 5)
+
+        # تأخير ذكي حسب نوع المحتوى
+        if msg.text:
+            await asyncio.sleep(1)
+        elif msg.photo:
+            await asyncio.sleep(2)
+        elif msg.video or msg.document:
+            await asyncio.sleep(5)
 
     print("🏁 اكتمل النقل بنجاح!")
 
