@@ -1,27 +1,39 @@
 from telethon import TelegramClient
 import asyncio
+import os
 
-api_id = 32630729       # ضع الـ api_id هنا
-api_hash = 'edf5520c08c8df7b3408acbda46f3140'  # ضع الـ api_hash هنا
-phone = '+213784428519'  # رقم الهاتف المستخدم
+# بياناتك الحقيقية
+api_id = 32630729
+api_hash = 'edf5520c08c8df7b3408acbda46f3140'
 
-client = TelegramClient('render_session', api_id, api_hash)
+# استخدام اسم جلسة ثابت لتجنب تسجيل الدخول المتكرر
+client = TelegramClient('session_bac_codex', api_id, api_hash)
 
 async def main():
-    source_channel = 't.me/bac_2026_koki'       # القناة المصدر (أنت عضو فيها)
-    target_channel = 'https://t.me/+EI4JWuPnp3M4MjA0'  # قناتك الجديدة
+    # المصدر: القناة التي تريد السحب منها
+    source_channel = 'bac_2026_koki' 
+    # الهدف: مجموعتك أو قناتك الخاصة
+    target_channel = 'https://t.me/+EI4JWuPnp3M4MjA0'
 
+    print("🚀 جاري بدء عملية النقل... انتظر قليلاً.")
+    
     count = 0
-    async for msg in client.iter_messages(source_channel, limit=4000):
-        count += 1
-        if msg.text:
-            await client.send_message(target_channel, msg.text)
-        elif msg.media:
-            file = await msg.download_media()
-            await client.send_file(target_channel, file)
-        await asyncio.sleep(1)  # تأخير لتجنب الحظر
-        print(f"✅ تم نقل {count} رسالة")
+    # iter_messages سيتجاوز الحماية لأنك مسجل كـ "مستخدم"
+    async for msg in client.iter_messages(source_channel, limit=4000, reverse=True):
+        try:
+            count += 1
+            # نقل الرسائل النصية والوسائط
+            await client.send_message(target_channel, msg)
+            
+            # تأخير زمني لتجنب حظر تلجرام (Flood Wait)
+            await asyncio.sleep(2) 
+            print(f"✅ تم نقل المنشور رقم: {count}")
+            
+        except Exception as e:
+            print(f"❌ خطأ في نقل الرسالة {count}: {e}")
+            continue
+
+    print(f"🎉 انتهى النقل بنجاح! إجمالي المنشورات: {count}")
 
 with client:
-    client.start(phone)
     client.loop.run_until_complete(main())
